@@ -45,7 +45,7 @@ if ($src.TrimEnd('\') -ne $Dest) {
     }
 }
 Get-ChildItem -LiteralPath $Dest -File | Unblock-File
-Remove-Item (Join-Path $Dest 'ips_found.txt') -Force -ErrorAction SilentlyContinue   # от прошлой версии, больше не используется
+# ips_found.txt (IP, найденные через DNS-сервисы обхода) не трогаем
 
 # 2. Интервал из config.txt
 $interval = 60

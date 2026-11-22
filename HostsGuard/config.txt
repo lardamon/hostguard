@@ -6,15 +6,20 @@
 interval = 60
 timeout = 8
 keep_backups = 10
-# Где скрипт сам ищет новые IP (можно убрать строку - тогда не ищет):
-#   doh       - DNS-сервис, который сам выдаёт рабочий обходной IP (Comss.one DNS)
+# Где скрипт сам ищет новые IP:
 #   ip_source - список IP GeoHide на GitHub, скачивается раз в source_hours часов
+#   doh       - DNS-сервис обхода: когда IP из списков не работают, скрипт спрашивает у него,
+#               какой обходной IP он выдаёт сейчас. Строк doh может быть несколько.
+#               GeoHide (ru/eu/us), Comss, DNS-AI и KeyOneDay уже встроены в скрипт - сюда только свои.
+#   use_dns = no - совсем не спрашивать DNS-сервисы (по умолчанию спрашивает)
 doh = https://dns.comss.one/dns-query
 ip_source = https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts
 source_hours = 12
 
 # Обходные IP. Добавляй/удаляй по одному в строке.
 # Найденные скриптом сами лежат в ips_found.txt и ips_source.txt - сюда их писать не надо.
+# IP из настоящих сетей самих сайтов (Anthropic, Cloudflare, Google) скрипт не ставит никогда:
+# по ним Россия закрыта. Свои сети можно дописать секцией [real], по одной в строке (например 1.2.3.0/24).
 [ip]
 37.230.192.51
 46.8.158.6

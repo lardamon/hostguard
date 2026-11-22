@@ -1,5 +1,6 @@
 ﻿# HostsGuard - следит за обходными IP в hosts и меняет их, только когда текущий перестал работать.
 # Совместим с Windows PowerShell 5.1. Запускается от администратора/SYSTEM.
+# Когда IP из списков умерли, сам спрашивает новые у DNS-сервисов обхода (GeoHide, Comss, DNS-AI, KeyOneDay).
 #   -Group 'Gemini'      проверить только эти группы (через запятую) и поставить для них лучший IP
 #   -Fastest             проверить все группы и поставить самый быстрый IP, даже если текущий работает
 param([switch]$Fastest, [string]$Group = '')
@@ -16,6 +17,16 @@ $LogPath = Join-Path $Root 'log.txt'
 $BackupDir = Join-Path $Root 'backups'
 $TmpDir = Join-Path $Root 'tmp'
 $SourcePath = Join-Path $Root 'ips_source.txt'    # IP, скачанные из списка GeoHide
+$FoundPath = Join-Path $Root 'ips_found.txt'      # IP, которые выдали DNS-сервисы обхода и которые реально ответили
+# DNS-сервисы обхода: у них спрашиваем, какой обходной IP они выдают прямо сейчас (так находятся новые IP,
+# когда старые умерли). Встроены в скрипт, чтобы работали и со старым config.txt; свои можно дописать в config.txt.
+$DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query')
+# Настоящие сети самих сайтов (Anthropic, Cloudflare, Google). IP из этих сетей - не обход: по нему Россия закрыта,
+# а curl этого не отличит. Такие IP никогда не ставим, откуда бы они ни пришли.
+$DefaultReal = @('160.79.104.0/21',
+    '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+    '8.8.4.0/24', '8.8.8.0/24', '34.0.0.0/8', '35.184.0.0/13', '64.233.160.0/19', '66.102.0.0/20', '66.249.64.0/19', '72.14.192.0/18', '74.125.0.0/16', '108.177.0.0/17', '142.250.0.0/15', '172.217.0.0/16', '172.253.0.0/16', '173.194.0.0/16', '192.178.0.0/15', '209.85.128.0/17', '216.58.192.0/19', '216.239.32.0/19',
+    '0.0.0.0/8', '10.0.0.0/8', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16')
 $Inv = [Globalization.CultureInfo]::InvariantCulture
 $DefaultIps = @('37.230.192.51', '46.8.158.6', '45.155.204.190', '5.175.161.3', '5.175.161.40', '45.13.237.213', '31.25.239.132', '143.20.64.192', '192.255.159.240', '192.255.159.241', '192.3.233.253', '107.175.76.134', '159.194.200.33', '193.233.112.67', '193.233.112.68', '193.233.112.88', '185.87.51.182', '185.246.223.127')   # если config.txt испорчен
 $BeginMark = '# >>> HostsGuard: этот блок правится автоматически, домены и IP меняй в config.txt'
@@ -29,21 +40,27 @@ function Log([string]$msg) {
 
 # ---------- config ----------
 function Read-Config($path) {
-    $cfg = @{ settings = @{ interval = 60; timeout = 8; keep_backups = 10; ip_source = 'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts'; source_hours = 12 }; ips = New-Object System.Collections.ArrayList; groups = New-Object System.Collections.ArrayList }
+    $cfg = @{ settings = @{ interval = 60; timeout = 8; keep_backups = 10; ip_source = 'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts'; source_hours = 12 }; ips = New-Object System.Collections.ArrayList; groups = New-Object System.Collections.ArrayList; doh = New-Object System.Collections.ArrayList; real = New-Object System.Collections.ArrayList }
     $sec = ''; $g = $null
     foreach ($raw in [IO.File]::ReadAllLines($path, [Text.Encoding]::UTF8)) {
         $l = $raw.Trim()
         if ($l -eq '' -or $l.StartsWith('#')) { continue }
         if ($l -match '^\[\s*group\s+(.+?)\s*\]$') {
             $sec = 'group'
-            $g = @{ name = $Matches[1]; test = ''; bad = ''; pattern = ''; domains = New-Object System.Collections.ArrayList }
+            $g = @{ name = $Matches[1]; test = ''; bad = ''; pattern = ''; explicitTest = $false; domains = New-Object System.Collections.ArrayList }
             [void]$cfg.groups.Add($g); continue
         }
         if ($l -match '^\[\s*(\w+)\s*\]$') { $sec = $Matches[1].ToLower(); continue }
-        if ($sec -eq 'settings' -and $l -match '^(\w+)\s*=\s*(.+)$') { $cfg.settings[$Matches[1].ToLower()] = $Matches[2].Trim(); continue }
+        if ($sec -eq 'settings' -and $l -match '^(\w+)\s*=\s*(.+)$') {
+            $k = $Matches[1].ToLower(); $v = $Matches[2].Trim()
+            if ($k -eq 'doh') { if ($v -match '^https://' -and -not $cfg.doh.Contains($v)) { [void]$cfg.doh.Add($v) } }   # строк doh может быть несколько
+            else { $cfg.settings[$k] = $v }
+            continue
+        }
+        if ($sec -eq 'real') { foreach ($t in ($l -split '\s+')) { if ($t -match '^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$' -and -not $cfg.real.Contains($t)) { [void]$cfg.real.Add($t) } }; continue }
         if ($sec -eq 'ip') { foreach ($t in ($l -split '\s+')) { if ($t -match '^\d{1,3}(\.\d{1,3}){3}$' -and -not $cfg.ips.Contains($t)) { [void]$cfg.ips.Add($t) } }; continue }
         if ($sec -eq 'group') {
-            if ($l -match '^(test|bad|pattern)\s*=\s*(.+)$') { $g[$Matches[1].ToLower()] = $Matches[2].Trim(); continue }
+            if ($l -match '^(test|bad|pattern)\s*=\s*(.+)$') { $g[$Matches[1].ToLower()] = $Matches[2].Trim(); if ($Matches[1].ToLower() -eq 'test') { $g.explicitTest = $true }; continue }
             foreach ($t in ($l -split '\s+')) {
                 $d = $t.ToLower()
                 if ($d -match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') { $d = "$d.frame.claudeusercontent.com" }
@@ -61,6 +78,43 @@ function Read-IpFile($path) {
     $r = @()
     if (Test-Path $path) { foreach ($l in [IO.File]::ReadAllLines($path)) { $t = $l.Trim(); if ($t -match '^\d{1,3}(\.\d{1,3}){3}$') { $r += $t } } }
     return $r
+}
+
+# ---------- настоящий адрес сайта или обходной ----------
+function Ip-ToNum([string]$ip) {
+    $p = $ip.Split('.'); if ($p.Count -ne 4) { return $null }
+    [double]$n = 0
+    foreach ($o in $p) { $b = 0; if (-not [int]::TryParse($o, [ref]$b) -or $b -lt 0 -or $b -gt 255) { return $null }; $n = $n * 256 + $b }
+    return $n
+}
+function Test-RealIp([string]$ip) {
+    # $true = этот IP ставить нельзя: это сеть самого сайта, локальный адрес или мусор
+    $n = Ip-ToNum $ip
+    if ($null -eq $n) { return $true }
+    foreach ($c in $script:RealNets) {
+        $parts = $c.Split('/'); $base = Ip-ToNum $parts[0]
+        if ($null -eq $base) { continue }
+        $bits = 32; if ($parts.Count -gt 1) { [void][int]::TryParse($parts[1], [ref]$bits) }
+        if ($bits -lt 0 -or $bits -gt 32) { continue }
+        $size = [math]::Pow(2, 32 - $bits); $start = [math]::Floor($base / $size) * $size
+        if ($n -ge $start -and $n -lt ($start + $size)) { return $true }
+    }
+    return $false
+}
+
+# Есть ли вообще интернет: открываем сайт, который в России точно не заблокирован.
+function Test-Internet {
+    $tmp = Join-Path $TmpDir 'inet.txt'
+    foreach ($u in @('https://ya.ru/', 'https://www.rbc.ru/')) {
+        $code = ''
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { $code = [string](& $Curl -s -o $tmp --ssl-no-revoke --max-time 6 -w '%{http_code}' $u 2>$null) } catch {}
+        $ErrorActionPreference = $old
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        $c = 0; [void][int]::TryParse($code.Trim(), [ref]$c)
+        if ($c -gt 0) { return $true }
+    }
+    return $false
 }
 
 # Свежий список IP из GitHub (GeoHide публикует свои адреса в шапке hosts). Не чаще раза в source_hours часов.
@@ -119,7 +173,7 @@ function Start-Probe($group, [string]$target, [int]$timeout) {
     $uri = [uri]$group.test
     $bodyFile = Join-Path $TmpDir ('p{0}.txt' -f $script:probeN)
     $a = @('-s', '-o', $bodyFile, '--ssl-no-revoke', '--max-time', "$timeout")
-    if ($target.StartsWith('doh:')) { $a += @('--doh-url', $target.Substring(4)) } else { $a += @('--resolve', ($uri.Host + ':443:' + $target)) }
+    if ($target.StartsWith('doh:')) { $a += @('-4', '--doh-url', $target.Substring(4)) } else { $a += @('--resolve', ($uri.Host + ':443:' + $target)) }
     $a += @('-w', '%{http_code}|%{time_total}|%{redirect_url}|%{remote_ip}', $group.test)
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $Curl
@@ -132,10 +186,11 @@ function Start-Probe($group, [string]$target, [int]$timeout) {
 }
 
 function Finish-Probe($group, $pr, [int]$timeout) {
-    $out = ''
+    $out = ''; $exit = -1
     if ($pr.p) {
         if (-not $pr.p.WaitForExit(($timeout + 10) * 1000)) { try { $pr.p.Kill() } catch {} }
         try { $out = $pr.outTask.Result.Trim() } catch {}
+        try { $exit = $pr.p.ExitCode } catch {}
     }
     $p = $out.Split('|')
     $code = 0; $time = 99.0; $redir = ''; $rip = ''
@@ -148,15 +203,27 @@ function Finish-Probe($group, $pr, [int]$timeout) {
         Remove-Item $pr.body -Force -ErrorAction SilentlyContinue
     }
     $ip = $pr.target; $viaDns = $false
-    if ($ip.StartsWith('doh:')) { $ip = $rip; $viaDns = $true }
+    if ($ip.StartsWith('doh:')) { $ip = $rip; $viaDns = $true; if ($ip -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { $ip = '' } }
     # tier: 2 = хорошо (2xx/3xx), 1 = отвечает с ошибкой 4xx, 0 = мёртв/забанен
     $tier = 0; $why = "код $code"
-    if ($code -eq 0) { $why = 'нет ответа' }
+    if ($code -eq 0) {
+        # почему не ответил - по коду выхода curl, чтобы в журнале была причина, а не просто "нет"
+        if ($exit -eq 28) { $why = "молчит (нет ответа за $timeout с)" }
+        elseif ($exit -eq 7) { $why = 'не соединяется (порт закрыт или IP заблокирован)' }
+        elseif ($exit -eq 35 -or $exit -eq 56 -or $exit -eq 52 -or $exit -eq 16 -or $exit -eq 92) { $why = 'соединение оборвано (сервер не обслуживает этот сайт или его режет провайдер)' }
+        elseif ($exit -eq 60 -or $exit -eq 51 -or $exit -eq 77) { $why = 'чужой сертификат (это не обходной сервер)' }
+        elseif ($exit -eq 6 -or $exit -eq 5) { $why = 'DNS-сервис не ответил' }
+        elseif ($exit -eq 2 -or $exit -eq 4 -or $exit -eq 1) { $why = "curl на этом ПК не умеет такой запрос (код $exit)" }
+        elseif ($exit -eq -1) { $why = 'curl не запустился' }
+        else { $why = "нет ответа (curl код $exit)" }
+    }
     elseif ($group.bad -and (($redir -and $redir.Contains($group.bad)) -or $body.Contains($group.bad))) { $why = "код $code -> $($group.bad) (Google забанил этот IP)" }
     elseif ($code -eq 429) { $why = 'код 429 (лимит)' }
     elseif ($code -ge 200 -and $code -lt 400) { $tier = 2 }
     elseif ($code -ge 400 -and $code -lt 500) { $tier = 1 }
-    return @{ ip = $ip; code = $code; time = $time; tier = $tier; why = $why; dns = $viaDns }
+    # DNS-сервис мог выдать настоящий адрес сайта вместо обходного - такой IP не берём
+    if ($viaDns -and $tier -gt 0 -and (Test-RealIp $ip)) { $tier = 0; $why = 'DNS выдал настоящий адрес сайта, а не обходной' }
+    return @{ ip = $ip; code = $code; time = $time; tier = $tier; why = $why; dns = $viaDns; target = $pr.target }
 }
 
 function Test-Many($group, [string[]]$targets, [int]$timeout) {
@@ -197,11 +264,18 @@ try {
     $timeout = [int]$cfg.settings.timeout
     Update-SourceIps $cfg
 
-    # все IP-кандидаты: config.txt + список с GitHub + те, что раньше нашлись через DNS
+    # настоящие сети сайтов: встроенный список + секция [real] из config.txt
+    $script:RealNets = @($DefaultReal) + @($cfg.real)
+    # DNS-сервисы обхода: встроенные + строки doh из config.txt. use_dns = no - не спрашивать их совсем.
+    $dohUrls = New-Object System.Collections.ArrayList
+    if ([string]$cfg.settings.use_dns -notmatch '^(no|нет|0|off)$') { foreach ($u in @($DefaultDoh) + @($cfg.doh)) { if (-not $dohUrls.Contains($u)) { [void]$dohUrls.Add($u) } } }
+
+    # все IP-кандидаты: config.txt + список с GitHub + те, что раньше выдали DNS-сервисы обхода.
+    # IP из настоящих сетей сайтов выкидываем сразу.
     $allIps = New-Object System.Collections.ArrayList
-    # только IP обходных сервисов (config.txt + список GeoHide). IP, которые выдаёт DNS, не берём:
-    # среди них бывают настоящие адреса сайтов, где Россия закрыта, а curl этого не отличит.
-    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath)) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
+    $foundIps = @(Read-IpFile $FoundPath)
+    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath) + $foundIps) { if (-not $allIps.Contains($ip) -and -not (Test-RealIp $ip)) { [void]$allIps.Add($ip) } }
+    $newFound = New-Object System.Collections.ArrayList
     if ($cfg.ips.Count -eq 0) {
         Log ('в config.txt не нашёл ни одного IP (групп: {0}) - беру встроенный список' -f $cfg.groups.Count)
         foreach ($ip in $DefaultIps) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
@@ -235,7 +309,9 @@ try {
     $changed = New-Object System.Collections.ArrayList
     $deadGroups = New-Object System.Collections.ArrayList
     $testedGroups = 0
-    foreach ($g in $cfg.groups) {
+    # сначала группы с явным test = (для них ищем новые IP через DNS), потом остальные - им достаются уже найденные IP
+    $checkOrder = @($cfg.groups | Where-Object { $_.explicitTest }) + @($cfg.groups | Where-Object { -not $_.explicitTest })
+    foreach ($g in $checkOrder) {
         $g.ip = $null
         if ($g.domains.Count -eq 0 -or -not $g.test) { continue }
         $testHost = ([uri]$g.test).Host.ToLower()
@@ -261,7 +337,10 @@ try {
         elseif ($cur) { Log ("[{0}] проверяю все IP (сейчас стоит {1})" -f $g.name, $cur) }
         else { Log ("[{0}] в hosts нет - проверяю все IP" -f $g.name) }
         $targets = @($allIps | Where-Object { -not ($rc -and $_ -eq $cur) })
+        # плюс спрашиваем DNS-сервисы обхода, какой IP они дают сейчас (только для групп с явным test = в config.txt)
+        if ($g.explicitTest) { foreach ($u in $dohUrls) { $targets += ('doh:' + $u) } }
         $res = @(Test-Many $g $targets $timeout)
+        foreach ($r in $res) { if ($r.dns -and $r.tier -gt 0 -and $r.ip -and -not $allIps.Contains($r.ip)) { [void]$newFound.Add($r.ip); [void]$allIps.Add($r.ip) } }
         if ($rc) { $res += $rc }
         # IP от DNS, который уже есть в списке, не дублируем
         $seen = @{}; $uniq = @()
@@ -271,6 +350,10 @@ try {
         $bannedNow = @($uniq | Where-Object { $_.why -like '*забанил*' })
         if ($bannedNow.Count) { Log ('    забанены Google: ' + (($bannedNow | ForEach-Object { $_.ip }) -join ', ')) }
         if ($ok.Count -eq 0) {
+            # причины по каждому виду отказа - чтобы было видно, что именно не так
+            $whyIp = @($res | Where-Object { -not $_.dns } | Group-Object { $_.why } | Sort-Object Count -Descending | ForEach-Object { '{0} - {1} шт' -f $_.Name, $_.Count })
+            if ($whyIp.Count) { Log ('    IP из списка: ' + ($whyIp -join '; ')) }
+            foreach ($r in @($res | Where-Object { $_.dns })) { Log ('    DNS {0}: {1}' -f ([uri]$r.target.Substring(4)).Host, $(if ($r.ip) { $r.ip + ' - ' + $r.why } else { $r.why })) }
             [void]$deadGroups.Add($g.name)
             Log ("    [{0}] рабочих IP в списке нет - оставляю как было" -f $g.name); $g.ip = $cur; continue
         }
@@ -285,8 +368,16 @@ try {
         if ($best.ip -ne $cur) { [void]$changed.Add(("{0}: {1} -> {2}" -f $g.name, $(if ($cur) { $cur } else { '(нет)' }), $best.ip)) }
         else { Log '    текущий и так лучший - оставляю' }
     }
-    if ($deadGroups.Count -and $deadGroups.Count -eq $testedGroups -and $testedGroups -gt 1) { Log 'ВНИМАНИЕ: не ответил ни один IP ни для одной нейронки - похоже, нет интернета.' }
-    elseif ($deadGroups.Count) { Log ('ВНИМАНИЕ: сейчас нет рабочего IP для: ' + ($deadGroups -join ', ') + '. Через hosts эти сайты сейчас не обойти - скрипт сам скачивает свежий список IP раз в 12 часов.') }
+    if ($deadGroups.Count) {
+        if (Test-Internet) { Log ('ВНИМАНИЕ: сейчас нет рабочего IP для: ' + ($deadGroups -join ', ') + '. Интернет на ПК есть (ya.ru открылся) - значит, до тебя не отвечает ни один известный обходной сервер, причины выше. Через hosts эти сайты сейчас не открыть; скрипт продолжит искать новые IP при каждой проверке.') }
+        else { Log ('ВНИМАНИЕ: на ПК сейчас нет интернета (ya.ru тоже не открылся) - дело не в IP. Не проверено: ' + ($deadGroups -join ', ') + '.') }
+    }
+    # запоминаем IP, которые выдали DNS-сервисы и которые ответили (не больше 60 последних)
+    if ($newFound.Count) {
+        $keepFound = @(@($foundIps) + @($newFound) | Select-Object -Last 60)
+        try { [IO.File]::WriteAllLines($FoundPath, [string[]]$keepFound) } catch {}
+        Log ('новые IP от DNS-сервисов обхода: ' + ($newFound -join ', '))
+    }
 
     # собираем новый hosts: строки вне блока без управляемых имён + блок в конце
     $managed = @{}

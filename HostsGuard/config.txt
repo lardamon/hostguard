@@ -1,0 +1,75 @@
+﻿# HostsGuard - настройки. Строки с # - комментарии.
+# После правки этого файла ничего перезапускать не надо: читается при каждой проверке.
+# Исключение: interval - после его смены запусти УСТАНОВИТЬ.cmd ещё раз.
+
+[settings]
+interval = 60
+timeout = 8
+keep_backups = 10
+# Где скрипт сам ищет новые IP (можно убрать строку - тогда не ищет):
+#   doh       - DNS-сервис, который сам выдаёт рабочий обходной IP (Comss.one DNS)
+#   ip_source - список IP GeoHide на GitHub, скачивается раз в source_hours часов
+doh = https://dns.comss.one/dns-query
+ip_source = https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts
+source_hours = 12
+
+# Обходные IP. Добавляй/удаляй по одному в строке.
+# Найденные скриптом сами лежат в ips_found.txt и ips_source.txt - сюда их писать не надо.
+[ip]
+37.230.192.51
+46.8.158.6
+45.155.204.190
+5.175.161.3
+5.175.161.40
+45.13.237.213
+31.25.239.132
+143.20.64.192
+192.255.159.240
+192.255.159.241
+192.3.233.253
+107.175.76.134
+159.194.200.33
+193.233.112.67
+193.233.112.68
+193.233.112.88
+185.87.51.182
+185.246.223.127
+
+# Группы. Все домены группы всегда указывают на один IP.
+#   test    = адрес, по которому проверяется IP (его домен должен быть в группе)
+#   bad     = если сайт перекидывает на адрес с этим текстом - IP считается плохим
+#   pattern = домены из hosts, подходящие под это выражение, тоже попадают в группу
+#   остальные строки - домены (можно несколько через пробел)
+# Порядок групп важен: домен попадает в первую подходящую.
+
+# Артефакты Claude (кузница сетов и т.п.). Сюда достаточно вписать UUID артефакта
+# из ошибки в браузере (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx) - домен допишется сам.
+[group Claude-artifacts]
+pattern = (?i)\.frame\.claudeusercontent\.com$
+406ad41e-a2fa-4ad2-bfc3-57de9d24f152
+
+[group Claude]
+test = https://claude.ai/
+pattern = (?i)(^|\.)(claude\.ai|claude\.com|claudeusercontent\.com|anthropic\.com|claudemcpclient\.com)$
+claude.ai www.claude.ai claude.com www.claude.com api.claude.ai api.claude.com
+api.anthropic.com auth.anthropic.com assets-proxy.anthropic.com s-cdn.anthropic.com
+claudeusercontent.com statsig.anthropic.com
+
+[group ChatGPT]
+test = https://chatgpt.com/
+pattern = (?i)(^|\.)(chatgpt\.com|chatgpt\.site|openai\.com|oaistatic\.com|oaiusercontent\.com|sora\.com)$
+chatgpt.com www.chatgpt.com auth.openai.com auth0.openai.com cdn.oaistatic.com
+files.oaiusercontent.com api.openai.com oaistatic.com oaiusercontent.com
+
+[group Gemini]
+test = https://gemini.google.com/app
+bad = google.com/sorry
+gemini.google gemini.google.com geminiweb-pa.clients.google.com geminiweb-pa.clients6.google.com
+waa-pa.clients6.google.com generativelanguage.googleapis.com alkalicore-pa.clients6.google.com
+alkalimakersuite-pa.clients6.google.com webchannel-alkalimakersuite-pa.clients6.google.com
+
+[group Google-AI-Studio]
+test = https://aistudio.google.com/
+bad = google.com/sorry
+aistudio.google.com labs.google.com notebooklm.google.com aisandbox-pa.googleapis.com
+aitestkitchen.withgoogle.com proactivebackend-pa.googleapis.com assistant-s3-pa.googleapis.com

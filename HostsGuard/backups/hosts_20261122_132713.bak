@@ -1,0 +1,301 @@
+#This file has been replaced with its default version by Kaspersky Lab because of possible infection
+#
+#
+#
+127.0.0.1 localhost
+::1 localhost
+# === ???????????? ???????????????????? IP ?????? ???????????? ?????????????????????????? (2026) ===
+
+# ChatGPT / OpenAI ??????? GeoHide, updated 2026-09-29, single endpoint
+5.175.161.40 cdn.auth0.com
+5.175.161.40 gpt3-openai.com
+5.175.161.40 openai.fund
+5.175.161.40 openai.org
+
+185.246.223.127 mixamo.com
+
+# Claude (Anthropic)
+
+# Grok (xAI)
+193.233.112.88 grok.com
+193.233.112.88 accounts.x.ai
+193.233.112.88 assets.grok.com
+193.233.112.88 x.ai
+193.233.112.88 www.grok.com
+
+# Google AI (Gemini, AI Studio)
+193.233.112.88 o.pki.goog
+
+# Microsoft Copilot
+193.233.112.88 copilot.microsoft.com
+193.233.112.88 sydney.bing.com
+193.233.112.88 edgeservices.bing.com
+193.233.112.88 rewards.bing.com
+
+# === ???????????? ?????????????? (?????????????????? ?????? ?? ????????) ===
+# Chess
+193.233.112.88 chess.com
+193.233.112.88 www.chess.com
+
+
+# itch.io (????????????????, ?????????????????????? ?????????????????? IP)
+# 45.33.107.166 itch.io[reference:5]
+# 45.33.107.166 www.itch.io
+3.5.87.28 mixamo-storage-prod.s3-us-west-2.amazonaws.com
+104.20.2.69 api.battlemetrics.com
+
+# === DEALEROS META START ===
+157.240.205.35	facebook.com
+31.13.72.36	www.facebook.com
+157.240.224.12	business.facebook.com
+157.240.224.12	accountscenter.facebook.com
+157.240.224.12	developers.facebook.com
+157.240.224.12	graph.facebook.com
+157.240.224.7	connect.facebook.net
+157.240.224.7	static.xx.fbcdn.net
+157.240.224.7	lookaside.fbsbx.com
+157.240.224.12	meta.com
+157.240.224.12	www.meta.com
+# === DEALEROS META END ===
+
+# --- NETFIX / ZAPRET HOSTS BLOCK START ---
+140.82.121.3 github.com
+146.75.22.132 objects.githubusercontent.com
+146.75.22.132 raw.githubusercontent.com
+146.75.22.132 release-assets.githubusercontent.com
+146.75.22.132 private-user-images.githubusercontent.com
+146.75.22.132 gist.githubusercontent.com
+146.75.22.132 avatars.githubusercontent.com
+146.75.22.132 media.githubusercontent.com
+146.75.22.132 avatars0.githubusercontent.com
+146.75.22.132 avatars1.githubusercontent.com
+146.75.22.132 avatars2.githubusercontent.com
+146.75.22.132 avatars3.githubusercontent.com
+146.75.22.132 avatars4.githubusercontent.com
+146.75.22.132 avatars5.githubusercontent.com
+146.75.22.132 avatars6.githubusercontent.com
+146.75.22.132 avatars7.githubusercontent.com
+146.75.22.132 avatars8.githubusercontent.com
+146.75.22.132 camo.githubusercontent.com
+146.75.22.132 cloud.githubusercontent.com
+2606:50c0:8000::154 objects.githubusercontent.com
+2606:50c0:8000::154 raw.githubusercontent.com
+2606:50c0:8000::154 release-assets.githubusercontent.com
+2606:50c0:8000::154 private-user-images.githubusercontent.com
+2606:50c0:8000::154 gist.githubusercontent.com
+2606:50c0:8000::154 avatars.githubusercontent.com
+2606:50c0:8000::154 media.githubusercontent.com
+2606:50c0:8000::154 avatars0.githubusercontent.com
+2606:50c0:8000::154 avatars1.githubusercontent.com
+2606:50c0:8000::154 avatars2.githubusercontent.com
+2606:50c0:8000::154 avatars3.githubusercontent.com
+2606:50c0:8000::154 avatars4.githubusercontent.com
+2606:50c0:8000::154 avatars5.githubusercontent.com
+2606:50c0:8000::154 avatars6.githubusercontent.com
+2606:50c0:8000::154 avatars7.githubusercontent.com
+2606:50c0:8000::154 avatars8.githubusercontent.com
+2606:50c0:8000::154 camo.githubusercontent.com
+2606:50c0:8000::154 cloud.githubusercontent.com
+
+149.154.167.220 my.telegram.org
+149.154.167.220 desktop.telegram.org
+149.154.167.220 macos.telegram.org
+149.154.167.220 oauth.telegram.org
+149.154.167.220 oauth.tg.dev
+149.154.167.220 cdn.telesco.pe
+149.154.167.220 cdn1.telesco.pe
+149.154.167.220 cdn2.telesco.pe
+149.154.167.220 cdn3.telesco.pe
+149.154.167.220 cdn4.telesco.pe
+149.154.167.220 cdn5.telesco.pe
+149.154.167.220 cdn6.telesco.pe
+149.154.167.220 core.telegram.org
+149.154.167.220 zws4.web.telegram.org
+149.154.167.220 vesta.web.telegram.org
+149.154.167.220 vesta-1.web.telegram.org
+149.154.167.220 venus-1.web.telegram.org
+149.154.167.220 telegram.me
+149.154.167.220 telegram.dog
+149.154.167.220 telegram.space
+149.154.167.220 telesco.pe
+149.154.167.220 tg.dev
+149.154.167.220 telegram.org
+149.154.167.220 t.me
+149.154.167.220 api.telegram.org
+149.154.167.220 td.telegram.org
+149.154.167.220 venus.web.telegram.org
+149.154.167.220 web.telegram.org
+149.154.167.220 kws2-1.web.telegram.org
+149.154.167.220 kws2.web.telegram.org
+149.154.167.220 kws4-1.web.telegram.org
+149.154.167.220 kws4.web.telegram.org
+149.154.167.220 zws2-1.web.telegram.org
+149.154.167.220 zws2.web.telegram.org
+149.154.167.220 zws4-1.web.telegram.org
+
+162.159.138.232 discord.com
+162.159.137.232 discord.com
+162.159.128.233 discord.com
+162.159.135.232 discord.com
+162.159.138.232 updates.discord.com
+162.159.137.232 updates.discord.com
+162.159.128.233 updates.discord.com
+162.159.135.232 updates.discord.com
+# --- NETFIX / ZAPRET HOSTS BLOCK END ---
+
+# Instagram
+157.240.224.174 instagram.com
+157.240.224.174 www.instagram.com
+157.240.224.174 i.instagram.com
+157.240.224.174 graph.instagram.com
+157.240.224.174 static.cdninstagram.com
+157.240.224.174 scontent.cdninstagram.com
+157.240.224.174 accountscenter.instagram.com
+157.240.224.174 b.i.instagram.com
+157.240.224.174 help.instagram.com
+157.240.224.174 edge-chat.instagram.com
+157.240.224.174 gateway.instagram.com
+157.240.224.174 graph.facebook.com
+157.240.224.174 www.facebook.com
+5.175.161.3 atlassian.com
+193.233.112.88 www.atlassian.com
+5.175.161.3 admin.atlassian.com
+143.20.64.192 id.atlassian.com
+5.175.161.3 api.atlassian.com
+5.175.161.40 my.atlassian.com
+5.175.161.40 auth.atlassian.com
+
+# >>> HostsGuard: этот блок правится автоматически, домены и IP меняй в config.txt
+# Claude-artifacts
+31.25.239.132 bdbe9efe-45e9-4650-b2eb-35742b951309.frame.claudeusercontent.com
+31.25.239.132 406ad41e-a2fa-4ad2-bfc3-57de9d24f152.frame.claudeusercontent.com
+# Claude
+31.25.239.132 claude.ai
+31.25.239.132 www.claude.ai
+31.25.239.132 claude.com
+31.25.239.132 www.claude.com
+31.25.239.132 api.claude.ai
+31.25.239.132 api.claude.com
+31.25.239.132 api.anthropic.com
+31.25.239.132 auth.anthropic.com
+31.25.239.132 assets-proxy.anthropic.com
+31.25.239.132 s-cdn.anthropic.com
+31.25.239.132 claudeusercontent.com
+31.25.239.132 statsig.anthropic.com
+31.25.239.132 anthropic.com
+31.25.239.132 console.anthropic.com
+31.25.239.132 www.anthropic.com
+# ChatGPT
+5.175.161.3 chatgpt.com
+5.175.161.3 www.chatgpt.com
+5.175.161.3 auth.openai.com
+5.175.161.3 auth0.openai.com
+5.175.161.3 cdn.oaistatic.com
+5.175.161.3 files.oaiusercontent.com
+5.175.161.3 api.openai.com
+5.175.161.3 oaistatic.com
+5.175.161.3 oaiusercontent.com
+5.175.161.3 www.openai.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-1.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-5.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-3.chatgpt.com
+5.175.161.3 developers.openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-4.chatgpt.com
+5.175.161.3 spinningup.openai.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-0.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-2.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-3-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 jukebox.openai.com
+5.175.161.3 sdmntprpolandcentral.oaiusercontent.com
+5.175.161.3 chatgpt-async-webps-staging-southcentralus-0.chatgpt.com
+5.175.161.3 hooks-staging.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-1-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-2-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 chat.openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-3-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 sdmntprwestus3.oaiusercontent.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-3.chatgpt.com
+5.175.161.3 cdn.platform.openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-2-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 videos.openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-5-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-4.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-3.chatgpt.com
+5.175.161.3 blog.openai.com
+5.175.161.3 discuss.openai.com
+5.175.161.3 debate-game.openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-0-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-1-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 ogimg.chatgpt.com
+5.175.161.3 ab.chatgpt.com
+5.175.161.3 tcr9i.chat.openai.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-0.chatgpt.com
+5.175.161.3 webrtc-staging.chatgpt.com
+5.175.161.3 webrtc.chatgpt.com
+5.175.161.3 realtime.chatgpt.com
+5.175.161.3 beta.openai.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-5.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-0-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 privacy-pass-issuer.api.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-4-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 sdmntprnortheu.oaiusercontent.com
+5.175.161.3 openai.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-1.chatgpt.com
+5.175.161.3 help.openai.com
+5.175.161.3 platform.api.openai.com
+5.175.161.3 chatgpt-async-webps-prod-centralus-2.chatgpt.com
+5.175.161.3 labs.openai.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-2.chatgpt.com
+5.175.161.3 microscope.openai.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-5.chatgpt.com
+5.175.161.3 android.chat.openai.com
+5.175.161.3 sora.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-2.chatgpt.com
+5.175.161.3 contest.openai.com
+5.175.161.3 search.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-5.chatgpt.com
+5.175.161.3 ios.chat.openai.com
+5.175.161.3 community.openai.com
+5.175.161.3 universe.openai.com
+5.175.161.3 gym.openai.com
+5.175.161.3 chatgpt-async-webps-prod-westus-0.chatgpt.com
+5.175.161.3 gov-demo.chatgpt.com
+5.175.161.3 sdmntprukwest.oaiusercontent.com
+5.175.161.3 beta.api.openai.com
+5.175.161.3 cdn.openai.com
+5.175.161.3 operator.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-4-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-1.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-1.chatgpt.com
+5.175.161.3 api.chatgpt.com
+5.175.161.3 ws.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-5-9e29c0310a29a59b.chatgpt.com
+5.175.161.3 edge.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-eastus-0.chatgpt.com
+5.175.161.3 sora.chatgpt.com
+5.175.161.3 arena.openai.com
+5.175.161.3 chatgpt-async-webps-prod-westus-4.chatgpt.com
+5.175.161.3 sdmntpritalynorth.oaiusercontent.com
+5.175.161.3 chatgpt-async-webps-staging-eastus-0.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-southcentralus-4.chatgpt.com
+5.175.161.3 chatgpt-async-webps-prod-westus-3.chatgpt.com
+5.175.161.3 platform.openai.com
+# Gemini
+192.255.159.240 gemini.google
+192.255.159.240 gemini.google.com
+192.255.159.240 geminiweb-pa.clients.google.com
+192.255.159.240 geminiweb-pa.clients6.google.com
+192.255.159.240 waa-pa.clients6.google.com
+192.255.159.240 generativelanguage.googleapis.com
+192.255.159.240 alkalicore-pa.clients6.google.com
+192.255.159.240 alkalimakersuite-pa.clients6.google.com
+192.255.159.240 webchannel-alkalimakersuite-pa.clients6.google.com
+# Google-AI-Studio
+5.175.161.3 aistudio.google.com
+5.175.161.3 labs.google.com
+5.175.161.3 notebooklm.google.com
+5.175.161.3 aisandbox-pa.googleapis.com
+5.175.161.3 aitestkitchen.withgoogle.com
+5.175.161.3 proactivebackend-pa.googleapis.com
+5.175.161.3 assistant-s3-pa.googleapis.com
+# <<< HostsGuard

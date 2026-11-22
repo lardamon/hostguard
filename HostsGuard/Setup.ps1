@@ -40,12 +40,12 @@ if ($src.TrimEnd('\') -ne $Dest) {
             Copy-Item -LiteralPath $target -Destination (Join-Path $Dest 'config_old.txt') -Force
             Write-Host 'твой config.txt был испорчен (нет IP или групп) - сохранил его как config_old.txt и положил новый.' -ForegroundColor Yellow
         }
-        if (@('log.txt', 'ips_found.txt', 'ips_source.txt') -contains $f.Name) { continue }   # журнал и найденные IP не затираем
+        if (@('log.txt', 'ips_found.txt', 'ips_proxy.txt', 'ips_source.txt') -contains $f.Name) { continue }   # журнал и найденные IP не затираем
         Copy-Item -LiteralPath $f.FullName -Destination $target -Force
     }
 }
 Get-ChildItem -LiteralPath $Dest -File | Unblock-File
-# ips_found.txt (IP, найденные через DNS-сервисы обхода) не трогаем
+Remove-Item (Join-Path $Dest 'ips_found.txt') -Force -ErrorAction SilentlyContinue   # от версии с ошибкой, больше не используется
 
 # 2. Интервал из config.txt
 $interval = 60

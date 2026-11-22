@@ -17,7 +17,7 @@ ip_source = https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/he
 source_hours = 12
 
 # Обходные IP. Добавляй/удаляй по одному в строке.
-# Найденные скриптом сами лежат в ips_found.txt и ips_source.txt - сюда их писать не надо.
+# Найденные скриптом сами лежат в ips_proxy.txt и ips_source.txt - сюда их писать не надо.
 # IP из настоящих сетей самих сайтов (Anthropic, Cloudflare, Google) скрипт не ставит никогда:
 # по ним Россия закрыта. Свои сети можно дописать секцией [real], по одной в строке (например 1.2.3.0/24).
 [ip]

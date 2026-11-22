@@ -17,12 +17,13 @@ $LogPath = Join-Path $Root 'log.txt'
 $BackupDir = Join-Path $Root 'backups'
 $TmpDir = Join-Path $Root 'tmp'
 $SourcePath = Join-Path $Root 'ips_source.txt'    # IP, скачанные из списка GeoHide
-$FoundPath = Join-Path $Root 'ips_found.txt'      # IP, которые выдали DNS-сервисы обхода и которые реально ответили
+$FoundPath = Join-Path $Root 'ips_proxy.txt'      # IP от DNS-сервисов обхода, по которым доказано, что это обход (сайт видит не твой адрес)
 # DNS-сервисы обхода: у них спрашиваем, какой обходной IP они выдают прямо сейчас (так находятся новые IP,
 # когда старые умерли). Встроены в скрипт, чтобы работали и со старым config.txt; свои можно дописать в config.txt.
 $DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query')
-# Настоящие сети самих сайтов (Anthropic, Cloudflare, Google). IP из этих сетей - не обход: по нему Россия закрыта,
-# а curl этого не отличит. Такие IP никогда не ставим, откуда бы они ни пришли.
+# Настоящие сети самих сайтов (Anthropic, Cloudflare, Google) - быстрый отсев. Список заведомо неполный,
+# поэтому главное правило другое: IP не из твоих списков ставится, только если сайт через него видит НЕ твой адрес
+# (проверка через /cdn-cgi/trace, см. Confirm-Proxies).
 $DefaultReal = @('160.79.104.0/21',
     '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
     '8.8.4.0/24', '8.8.8.0/24', '34.0.0.0/8', '35.184.0.0/13', '64.233.160.0/19', '66.102.0.0/20', '66.249.64.0/19', '72.14.192.0/18', '74.125.0.0/16', '108.177.0.0/17', '142.250.0.0/15', '172.217.0.0/16', '172.253.0.0/16', '173.194.0.0/16', '192.178.0.0/15', '209.85.128.0/17', '216.58.192.0/19', '216.239.32.0/19',
@@ -173,7 +174,7 @@ function Start-Probe($group, [string]$target, [int]$timeout) {
     $uri = [uri]$group.test
     $bodyFile = Join-Path $TmpDir ('p{0}.txt' -f $script:probeN)
     $a = @('-s', '-o', $bodyFile, '--ssl-no-revoke', '--max-time', "$timeout")
-    if ($target.StartsWith('doh:')) { $a += @('-4', '--doh-url', $target.Substring(4)) } else { $a += @('--resolve', ($uri.Host + ':443:' + $target)) }
+    if ($target.StartsWith('doh:')) { $a += @('-4', '--doh-url', $target.Substring(4)) } elseif ($target -ne 'direct') { $a += @('--resolve', ($uri.Host + ':443:' + $target)) }
     $a += @('-w', '%{http_code}|%{time_total}|%{redirect_url}|%{remote_ip}', $group.test)
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $Curl
@@ -219,17 +220,53 @@ function Finish-Probe($group, $pr, [int]$timeout) {
     }
     elseif ($group.bad -and (($redir -and $redir.Contains($group.bad)) -or $body.Contains($group.bad))) { $why = "код $code -> $($group.bad) (Google забанил этот IP)" }
     elseif ($code -eq 429) { $why = 'код 429 (лимит)' }
+    elseif ($code -eq 451) { $why = 'код 451: сайт закрыт для твоей страны - это не обход' }
     elseif ($code -ge 200 -and $code -lt 400) { $tier = 2 }
     elseif ($code -ge 400 -and $code -lt 500) { $tier = 1 }
     # DNS-сервис мог выдать настоящий адрес сайта вместо обходного - такой IP не берём
     if ($viaDns -and $tier -gt 0 -and (Test-RealIp $ip)) { $tier = 0; $why = 'DNS выдал настоящий адрес сайта, а не обходной' }
-    return @{ ip = $ip; code = $code; time = $time; tier = $tier; why = $why; dns = $viaDns; target = $pr.target }
+    return @{ ip = $ip; code = $code; time = $time; tier = $tier; why = $why; dns = $viaDns; target = $pr.target; body = $body }
 }
 
 function Test-Many($group, [string[]]$targets, [int]$timeout) {
     $started = @(); foreach ($t in $targets) { $started += (Start-Probe $group $t $timeout) }
     $res = @(); foreach ($s in $started) { $res += (Finish-Probe $group $s $timeout) }
     return $res
+}
+
+# Откуда сайт видит запрос, если идти напрямую (без hosts-обхода). Один раз за запуск.
+$script:MyTrace = $null
+function Get-MyTrace {
+    if ($null -ne $script:MyTrace) { return $script:MyTrace }
+    $script:MyTrace = @{ ip = ''; loc = '' }
+    $pg = @{ test = 'https://www.cloudflare.com/cdn-cgi/trace'; bad = '' }
+    $f = Finish-Probe $pg (Start-Probe $pg 'direct' 6) 6
+    if ($f.body -match '(?m)^ip=(\S+)') { $script:MyTrace.ip = $Matches[1] }
+    if ($f.body -match '(?m)^loc=(\w+)') { $script:MyTrace.loc = $Matches[1] }
+    return $script:MyTrace
+}
+
+# Доказательство, что IP - обходной сервер, а не настоящий адрес сайта: через этот IP открываем служебную
+# страницу /cdn-cgi/trace (есть у claude.ai и chatgpt.com), она пишет, с какого адреса и из какой страны сайт
+# видит запрос. Видит твой адрес или RU - это не обход. Ничего не показал - не доказано, тоже не берём.
+function Confirm-Proxies($group, [string[]]$ips, [int]$timeout) {
+    $my = Get-MyTrace
+    $hostNames = @(@(([uri]$group.test).Host, 'claude.ai', 'chatgpt.com') | Select-Object -Unique)
+    $jobs = @()
+    foreach ($ip in $ips) { foreach ($h in $hostNames) { $pg = @{ test = "https://$h/cdn-cgi/trace"; bad = '' }; $jobs += @{ ip = $ip; pg = $pg; s = (Start-Probe $pg $ip $timeout) } } }
+    $r = @{}
+    foreach ($ip in $ips) { $r[$ip] = @{ ok = $false; bad = $false; why = 'не доказано, что это обход (сайт не показал, откуда видит запрос)' } }
+    foreach ($j in $jobs) {
+        $f = Finish-Probe $j.pg $j.s $timeout
+        $loc = ''; $tip = ''
+        if ($f.body -match '(?m)^loc=(\w+)') { $loc = $Matches[1] }
+        if ($f.body -match '(?m)^ip=(\S+)') { $tip = $Matches[1] }
+        if (-not $loc -or -not $tip) { continue }
+        $e = $r[$j.ip]
+        if ($loc -eq 'RU' -or ($my.ip -and $tip -eq $my.ip)) { $e.bad = $true; $e.ok = $false; $e.why = "не обход: сайт видит через него твой настоящий адрес ($loc)" }
+        elseif (-not $e.bad) { $e.ok = $true; $e.why = "обход, сайт видит $loc" }
+    }
+    return $r
 }
 
 function Fmt($r) {
@@ -272,9 +309,14 @@ try {
 
     # все IP-кандидаты: config.txt + список с GitHub + те, что раньше выдали DNS-сервисы обхода.
     # IP из настоящих сетей сайтов выкидываем сразу.
+    # $trusted - IP из твоих списков (config.txt + GeoHide): им верим. Остальные (от DNS-сервисов) каждый раз
+    # обязаны доказать, что они обход.
+    Remove-Item (Join-Path $Root 'ips_found.txt') -Force -ErrorAction SilentlyContinue   # от версии с ошибкой: туда попал настоящий адрес сайта
     $allIps = New-Object System.Collections.ArrayList
-    $foundIps = @(Read-IpFile $FoundPath)
-    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath) + $foundIps) { if (-not $allIps.Contains($ip) -and -not (Test-RealIp $ip)) { [void]$allIps.Add($ip) } }
+    $trusted = New-Object System.Collections.ArrayList
+    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath)) { if (-not $trusted.Contains($ip) -and -not (Test-RealIp $ip)) { [void]$trusted.Add($ip); [void]$allIps.Add($ip) } }
+    $foundIps = @(Read-IpFile $FoundPath | Where-Object { -not (Test-RealIp $_) })
+    foreach ($ip in $foundIps) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
     $newFound = New-Object System.Collections.ArrayList
     if ($cfg.ips.Count -eq 0) {
         Log ('в config.txt не нашёл ни одного IP (групп: {0}) - беру встроенный список' -f $cfg.groups.Count)
@@ -326,8 +368,11 @@ try {
         $testedGroups++
         $force = ($Fastest -or $only.Count -gt 0)
 
+        # текущий IP не из списков обходных (например, его поставила версия с ошибкой) - не верим ему, ищем заново
+        $curBad = ($cur -and -not $allIps.Contains($cur))
+        if ($curBad) { Log ("[{0}] сейчас стоит {1} - его нет в списках обходных, перепроверяю" -f $g.name, $cur) }
         $rc = $null
-        if ($cur -and -not $force) {
+        if ($cur -and -not $force -and -not $curBad) {
             $rc = @(Test-Many $g @($cur) $timeout)[0]
             if ($rc.tier -eq 0) { Start-Sleep -Seconds 3; $rc = @(Test-Many $g @($cur) $timeout)[0] }   # повтор, чтобы не дёргаться из-за случайного сбоя
             if ($rc.tier -eq 2) { Log ("[{0}] ок: {1}" -f $g.name, (Fmt $rc)); $g.ip = $cur; continue }
@@ -340,6 +385,14 @@ try {
         # плюс спрашиваем DNS-сервисы обхода, какой IP они дают сейчас (только для групп с явным test = в config.txt)
         if ($g.explicitTest) { foreach ($u in $dohUrls) { $targets += ('doh:' + $u) } }
         $res = @(Test-Many $g $targets $timeout)
+        # всё, что ответило, но не из твоих списков, должно доказать, что это обход
+        $need = @($res | Where-Object { $_.tier -gt 0 -and $_.ip -and -not $trusted.Contains($_.ip) } | ForEach-Object { $_.ip } | Select-Object -Unique)
+        if ($need.Count) {
+            $proof = Confirm-Proxies $g $need $timeout
+            foreach ($r in $res) { if ($r.tier -gt 0 -and $r.ip -and $proof.ContainsKey($r.ip) -and -not $proof[$r.ip].ok) { $r.tier = 0; $r.why = $proof[$r.ip].why } }
+            $rej = @($need | Where-Object { -not $proof[$_].ok })
+            if ($rej.Count) { Log ('    отброшены: ' + (($rej | ForEach-Object { $_ + ' - ' + $proof[$_].why }) -join '; ')) }
+        }
         foreach ($r in $res) { if ($r.dns -and $r.tier -gt 0 -and $r.ip -and -not $allIps.Contains($r.ip)) { [void]$newFound.Add($r.ip); [void]$allIps.Add($r.ip) } }
         if ($rc) { $res += $rc }
         # IP от DNS, который уже есть в списке, не дублируем
@@ -355,6 +408,12 @@ try {
             if ($whyIp.Count) { Log ('    IP из списка: ' + ($whyIp -join '; ')) }
             foreach ($r in @($res | Where-Object { $_.dns })) { Log ('    DNS {0}: {1}' -f ([uri]$r.target.Substring(4)).Host, $(if ($r.ip) { $r.ip + ' - ' + $r.why } else { $r.why })) }
             [void]$deadGroups.Add($g.name)
+            if ($curBad -and $trusted.Count) {
+                # настоящий адрес сайта в hosts не оставляем (сайт увидит твой адрес) - возвращаем IP из списка, пусть лучше не открывается
+                $g.ip = $trusted[0]
+                Log ("    [{0}] рабочих IP нет - убираю {1}, ставлю {2} из списка, чтобы сайт не открывался напрямую" -f $g.name, $cur, $g.ip)
+                [void]$changed.Add(("{0}: {1} -> {2}" -f $g.name, $cur, $g.ip)); continue
+            }
             Log ("    [{0}] рабочих IP в списке нет - оставляю как было" -f $g.name); $g.ip = $cur; continue
         }
         $best = $ok[0]
@@ -374,7 +433,7 @@ try {
     }
     # запоминаем IP, которые выдали DNS-сервисы и которые ответили (не больше 60 последних)
     if ($newFound.Count) {
-        $keepFound = @(@($foundIps) + @($newFound) | Select-Object -Last 60)
+        $keepFound = @(@($foundIps) + @($newFound) | Select-Object -Unique | Select-Object -Last 60)
         try { [IO.File]::WriteAllLines($FoundPath, [string[]]$keepFound) } catch {}
         Log ('новые IP от DNS-сервисов обхода: ' + ($newFound -join ', '))
     }

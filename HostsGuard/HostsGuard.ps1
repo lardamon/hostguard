@@ -17,10 +17,12 @@ $LogPath = Join-Path $Root 'log.txt'
 $BackupDir = Join-Path $Root 'backups'
 $TmpDir = Join-Path $Root 'tmp'
 $SourcePath = Join-Path $Root 'ips_source.txt'    # IP, скачанные из списка GeoHide
+$LastGoodPath = Join-Path $Root 'last_good.txt'   # последний IP, который реально отвечал, по каждой группе (строки: группа=IP)
+$MinTimeout = 30                                  # обходные серверы бывают очень медленными: меньше 30 с не ждём, иначе живой медленный IP считается мёртвым
 $FoundPath = Join-Path $Root 'ips_proxy.txt'      # IP от DNS-сервисов обхода, по которым доказано, что это обход (сайт видит не твой адрес)
 # DNS-сервисы обхода: у них спрашиваем, какой обходной IP они выдают прямо сейчас (так находятся новые IP,
 # когда старые умерли). Встроены в скрипт, чтобы работали и со старым config.txt; свои можно дописать в config.txt.
-$DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query')
+$DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query', 'https://dns.dagami.ru/dns-query', 'https://doh.dagami.ru/dns-query', 'https://sync.bezmezhau.com/dns-query', 'https://magicdns.ru', 'https://api.magicinfo.art/rpc')
 # Настоящие сети самих сайтов (Anthropic, Cloudflare, Google) - быстрый отсев. Список заведомо неполный,
 # поэтому главное правило другое: IP не из твоих списков ставится, только если сайт через него видит НЕ твой адрес
 # (проверка через /cdn-cgi/trace, см. Confirm-Proxies).
@@ -142,6 +144,29 @@ function Update-SourceIps($cfg) {
     [IO.File]::WriteAllLines($SourcePath, [string[]]$ips)
     $new = @($ips | Where-Object { $prev -notcontains $_ })
     if ($new.Count -and $prev.Count) { Log ('список IP с GitHub обновлён, новые: ' + ($new -join ', ')) }
+}
+
+# ---------- последний рабочий IP по группам ----------
+function Read-LastGood($trusted) {
+    $lg = @{}
+    if (Test-Path $LastGoodPath) {
+        foreach ($l in [IO.File]::ReadAllLines($LastGoodPath, [Text.Encoding]::UTF8)) { if ($l -match '^(.+?)=(\d{1,3}(\.\d{1,3}){3})\s*$') { $lg[$Matches[1].Trim().ToLower()] = $Matches[2] } }
+        return $lg
+    }
+    # файла ещё нет - поднимаем из журнала: строки "[группа] ок: IP" и "ЗАМЕНА группа: A -> B".
+    # Берём только IP из твоих списков; замены, сделанные с IP не из списков (следы версии с ошибкой), пропускаем.
+    if (Test-Path $LogPath) {
+        try {
+            foreach ($l in [IO.File]::ReadAllLines($LogPath, [Text.Encoding]::UTF8)) {
+                if ($l -match '\[([^\]]+)\] ок: (\d{1,3}(?:\.\d{1,3}){3}) ') { if ($trusted.Contains($Matches[2])) { $lg[$Matches[1].ToLower()] = $Matches[2] } }
+                elseif ($l -match 'ЗАМЕНА (.+?): (\S+) -> (\d{1,3}(?:\.\d{1,3}){3})\s*$') { if ($trusted.Contains($Matches[3]) -and ($Matches[2] -eq '(нет)' -or $trusted.Contains($Matches[2]))) { $lg[$Matches[1].ToLower()] = $Matches[3] } }
+            }
+        } catch {}
+    }
+    return $lg
+}
+function Save-LastGood($lg) {
+    try { [IO.File]::WriteAllLines($LastGoodPath, [string[]]@($lg.Keys | Sort-Object | ForEach-Object { $_ + '=' + $lg[$_] }), [Text.Encoding]::UTF8) } catch {}
 }
 
 # ---------- hosts ----------
@@ -298,7 +323,8 @@ if (-not $gotIt) { Write-Host 'Уже идёт другая проверка, п
 try {
     foreach ($d in @($BackupDir, $TmpDir)) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null } }
     $cfg = Read-Config (Join-Path $Root 'config.txt')
-    $timeout = [int]$cfg.settings.timeout
+    $timeout = 0; [void][int]::TryParse([string]$cfg.settings.timeout, [ref]$timeout)
+    if ($timeout -lt $MinTimeout) { $timeout = $MinTimeout }
     Update-SourceIps $cfg
 
     # настоящие сети сайтов: встроенный список + секция [real] из config.txt
@@ -318,6 +344,7 @@ try {
     $foundIps = @(Read-IpFile $FoundPath | Where-Object { -not (Test-RealIp $_) })
     foreach ($ip in $foundIps) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
     $newFound = New-Object System.Collections.ArrayList
+    $lastGood = Read-LastGood $trusted
     if ($cfg.ips.Count -eq 0) {
         Log ('в config.txt не нашёл ни одного IP (групп: {0}) - беру встроенный список' -f $cfg.groups.Count)
         foreach ($ip in $DefaultIps) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
@@ -375,7 +402,7 @@ try {
         if ($cur -and -not $force -and -not $curBad) {
             $rc = @(Test-Many $g @($cur) $timeout)[0]
             if ($rc.tier -eq 0) { Start-Sleep -Seconds 3; $rc = @(Test-Many $g @($cur) $timeout)[0] }   # повтор, чтобы не дёргаться из-за случайного сбоя
-            if ($rc.tier -eq 2) { Log ("[{0}] ок: {1}" -f $g.name, (Fmt $rc)); $g.ip = $cur; continue }
+            if ($rc.tier -eq 2) { Log ("[{0}] ок: {1}" -f $g.name, (Fmt $rc)); $g.ip = $cur; $lastGood[$g.name.ToLower()] = $cur; continue }
         }
 
         if ($rc) { Log ("[{0}] текущий {1} - проверяю все IP" -f $g.name, (Fmt $rc)) }
@@ -408,11 +435,15 @@ try {
             if ($whyIp.Count) { Log ('    IP из списка: ' + ($whyIp -join '; ')) }
             foreach ($r in @($res | Where-Object { $_.dns })) { Log ('    DNS {0}: {1}' -f ([uri]$r.target.Substring(4)).Host, $(if ($r.ip) { $r.ip + ' - ' + $r.why } else { $r.why })) }
             [void]$deadGroups.Add($g.name)
-            if ($curBad -and $trusted.Count) {
-                # настоящий адрес сайта в hosts не оставляем (сайт увидит твой адрес) - возвращаем IP из списка, пусть лучше не открывается
-                $g.ip = $trusted[0]
-                Log ("    [{0}] рабочих IP нет - убираю {1}, ставлю {2} из списка, чтобы сайт не открывался напрямую" -f $g.name, $cur, $g.ip)
-                [void]$changed.Add(("{0}: {1} -> {2}" -f $g.name, $cur, $g.ip)); continue
+            # Сейчас не отвечает никто. Ничего наугад не ставим: возвращаем последний IP, который у этой группы реально работал
+            # (если он не стоит и так). Настоящий адрес сайта в hosts не оставляем - сайт увидел бы твой адрес.
+            $back = $lastGood[$g.name.ToLower()]
+            if ($back -and -not $allIps.Contains($back)) { $back = $null }
+            if (-not $back -and $curBad -and $trusted.Count) { $back = $trusted[0] }
+            if ($back -and $back -ne $cur) {
+                $g.ip = $back
+                Log ("    [{0}] сейчас не отвечает ни один IP - возвращаю последний рабочий {1}" -f $g.name, $back)
+                [void]$changed.Add(("{0}: {1} -> {2}" -f $g.name, $(if ($cur) { $cur } else { '(нет)' }), $back)); continue
             }
             Log ("    [{0}] рабочих IP в списке нет - оставляю как было" -f $g.name); $g.ip = $cur; continue
         }
@@ -422,8 +453,9 @@ try {
             $other = @($ok | Where-Object { $_.ip -ne $cur })
             if ($other.Count) { $best = $other[0] } else { Log '    других рабочих IP нет - оставляю текущий' }
         }
-        if ($rc -and $rc.tier -ge $best.tier -and -not $force) { $g.ip = $cur; Log '    лучше текущего нет - оставляю'; continue }
+        if ($rc -and $rc.tier -ge $best.tier -and -not $force) { $g.ip = $cur; $lastGood[$g.name.ToLower()] = $cur; Log '    лучше текущего нет - оставляю'; continue }
         $g.ip = $best.ip
+        $lastGood[$g.name.ToLower()] = $best.ip
         if ($best.ip -ne $cur) { [void]$changed.Add(("{0}: {1} -> {2}" -f $g.name, $(if ($cur) { $cur } else { '(нет)' }), $best.ip)) }
         else { Log '    текущий и так лучший - оставляю' }
     }
@@ -431,6 +463,7 @@ try {
         if (Test-Internet) { Log ('ВНИМАНИЕ: сейчас нет рабочего IP для: ' + ($deadGroups -join ', ') + '. Интернет на ПК есть (ya.ru открылся) - значит, до тебя не отвечает ни один известный обходной сервер, причины выше. Через hosts эти сайты сейчас не открыть; скрипт продолжит искать новые IP при каждой проверке.') }
         else { Log ('ВНИМАНИЕ: на ПК сейчас нет интернета (ya.ru тоже не открылся) - дело не в IP. Не проверено: ' + ($deadGroups -join ', ') + '.') }
     }
+    Save-LastGood $lastGood
     # запоминаем IP, которые выдали DNS-сервисы и которые ответили (не больше 60 последних)
     if ($newFound.Count) {
         $keepFound = @(@($foundIps) + @($newFound) | Select-Object -Unique | Select-Object -Last 60)

@@ -4,7 +4,8 @@
 
 [settings]
 interval = 60
-timeout = 8
+# сколько секунд ждать ответа от IP. Обходные серверы бывают очень медленными, поэтому меньше 30 скрипт не берёт.
+timeout = 30
 keep_backups = 10
 # Где скрипт сам ищет новые IP:
 #   ip_source - список IP GeoHide на GitHub, скачивается раз в source_hours часов

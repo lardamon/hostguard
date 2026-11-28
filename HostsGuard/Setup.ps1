@@ -22,7 +22,32 @@ if ($Uninstall) {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Host 'Задача HostsGuard удалена. Проверки больше не запускаются.' -ForegroundColor Green
     } else { Write-Host 'Задачи HostsGuard нет - удалять нечего.' }
-    Write-Host "Папку $Dest и строки в hosts я не трогал - удали сам, если нужно."
+    # убираем из hosts блок HostsGuard (всё между "# >>> HostsGuard" и "# <<< HostsGuard"), остальное не трогаем
+    if ($env:HG_HOSTS) { $hosts = $env:HG_HOSTS } else { $hosts = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts' }
+    $bytes = [IO.File]::ReadAllBytes($hosts)
+    $bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    $text = (New-Object Text.UTF8Encoding($false)).GetString($bytes, $(if ($bom) { 3 } else { 0 }), $bytes.Length - $(if ($bom) { 3 } else { 0 }))
+    $out = New-Object System.Collections.ArrayList; $inBlock = $false; $removed = 0
+    foreach ($l in ($text -split "\r?\n")) {
+        if ($l.StartsWith('# >>> HostsGuard')) { $inBlock = $true; $removed++; continue }
+        if ($l.StartsWith('# <<< HostsGuard')) { $inBlock = $false; $removed++; continue }
+        if ($inBlock) { $removed++; continue }
+        [void]$out.Add($l)
+    }
+    if ($removed -eq 0) { Write-Host 'Блока HostsGuard в hosts нет - hosts не трогал.' }
+    else {
+        while ($out.Count -gt 0 -and $out[$out.Count - 1].Trim() -eq '') { $out.RemoveAt($out.Count - 1) }
+        $bakDir = Join-Path $PSScriptRoot 'backups'
+        if (-not (Test-Path $bakDir)) { New-Item -ItemType Directory -Path $bakDir | Out-Null }
+        $bak = Join-Path $bakDir ('hosts_' + (Get-Date).ToString('yyyyMMdd_HHmmss') + '_до_удаления.bak')
+        Copy-Item -LiteralPath $hosts -Destination $bak -Force
+        (Get-Item -LiteralPath $hosts).IsReadOnly = $false
+        [IO.File]::WriteAllText($hosts, (($out -join "`r`n") + "`r`n"), (New-Object Text.UTF8Encoding($bom)))
+        try { & ipconfig /flushdns | Out-Null } catch {}
+        Write-Host ('Убрал из hosts блок HostsGuard (' + $removed + ' строк). Копия прежнего hosts: ' + $bak) -ForegroundColor Green
+        Write-Host 'Закрой браузер полностью и открой заново.' -ForegroundColor Green
+    }
+    Write-Host "Папку $Dest не трогал - удали сам, если нужно."
     exit 0
 }
 

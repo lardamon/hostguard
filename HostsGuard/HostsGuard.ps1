@@ -16,13 +16,23 @@ else { $Curl = 'curl' }
 $LogPath = Join-Path $Root 'log.txt'
 $BackupDir = Join-Path $Root 'backups'
 $TmpDir = Join-Path $Root 'tmp'
-$SourcePath = Join-Path $Root 'ips_source.txt'    # IP, скачанные из списка GeoHide
+$SourcePath = Join-Path $Root 'ips_lists.txt'     # IP, собранные из списков-источников (см. $DefaultSources)
+# Списки-источники: готовые hosts-файлы сервисов обхода. Из каждого берём IP, которые он назначает доменам нейронок
+# (claude.ai, chatgpt.com и т.д.), плюс IP из шапки GeoHide. Встроены в скрипт; свои - строками ip_source в config.txt.
+$DefaultSources = @(
+    'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts',
+    'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/eu/hosts',
+    'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/us/hosts',
+    'https://raw.githubusercontent.com/ISa1m0n/ai-hosts/main/hosts-ai.txt',
+    'https://raw.githubusercontent.com/ImMALWARE/dns.malw.link/master/hosts',
+    'https://raw.githubusercontent.com/dangerden41k/hosts-autommate/main/hosts')
+$MaxSourceHours = 3                               # списки перекачиваем не реже раза в 3 часа
 $LastGoodPath = Join-Path $Root 'last_good.txt'   # последний IP, который реально отвечал, по каждой группе (строки: группа=IP)
 $MinTimeout = 30                                  # обходные серверы бывают очень медленными: меньше 30 с не ждём, иначе живой медленный IP считается мёртвым
 $FoundPath = Join-Path $Root 'ips_proxy.txt'      # IP от DNS-сервисов обхода, по которым доказано, что это обход (сайт видит не твой адрес)
 # DNS-сервисы обхода: у них спрашиваем, какой обходной IP они выдают прямо сейчас (так находятся новые IP,
 # когда старые умерли). Встроены в скрипт, чтобы работали и со старым config.txt; свои можно дописать в config.txt.
-$DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query', 'https://dns.dagami.ru/dns-query', 'https://doh.dagami.ru/dns-query', 'https://sync.bezmezhau.com/dns-query', 'https://magicdns.ru', 'https://api.magicinfo.art/rpc')
+$DefaultDoh = @('https://geohide.ru/dns-query', 'https://eu.geohide.ru/dns-query', 'https://us.geohide.ru/dns-query', 'https://dns.comss.one/dns-query', 'https://dns.dns-ai.ru/dns-query', 'https://dns.keyoneday.ru/dns-query', 'https://dns.dagami.ru/dns-query', 'https://doh.dagami.ru/dns-query', 'https://sync.bezmezhau.com/dns-query', 'https://magicdns.ru', 'https://api.magicinfo.art/rpc', 'https://dns.malw.link/dns-query')
 # Настоящие сети самих сайтов (Anthropic, Cloudflare, Google) - быстрый отсев. Список заведомо неполный,
 # поэтому главное правило другое: IP не из твоих списков ставится, только если сайт через него видит НЕ твой адрес
 # (проверка через /cdn-cgi/trace, см. Confirm-Proxies).
@@ -43,7 +53,7 @@ function Log([string]$msg) {
 
 # ---------- config ----------
 function Read-Config($path) {
-    $cfg = @{ settings = @{ interval = 60; timeout = 8; keep_backups = 10; ip_source = 'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts'; source_hours = 12 }; ips = New-Object System.Collections.ArrayList; groups = New-Object System.Collections.ArrayList; doh = New-Object System.Collections.ArrayList; real = New-Object System.Collections.ArrayList }
+    $cfg = @{ settings = @{ interval = 60; timeout = 8; keep_backups = 10; ip_source = 'https://raw.githubusercontent.com/Internet-Helper/GeoHideDNS/refs/heads/main/hosts/hosts'; source_hours = 12 }; ips = New-Object System.Collections.ArrayList; groups = New-Object System.Collections.ArrayList; doh = New-Object System.Collections.ArrayList; sources = New-Object System.Collections.ArrayList; real = New-Object System.Collections.ArrayList }
     $sec = ''; $g = $null
     foreach ($raw in [IO.File]::ReadAllLines($path, [Text.Encoding]::UTF8)) {
         $l = $raw.Trim()
@@ -57,6 +67,7 @@ function Read-Config($path) {
         if ($sec -eq 'settings' -and $l -match '^(\w+)\s*=\s*(.+)$') {
             $k = $Matches[1].ToLower(); $v = $Matches[2].Trim()
             if ($k -eq 'doh') { if ($v -match '^https://' -and -not $cfg.doh.Contains($v)) { [void]$cfg.doh.Add($v) } }   # строк doh может быть несколько
+            elseif ($k -eq 'ip_source') { if ($v -match '^https://' -and -not $cfg.sources.Contains($v)) { [void]$cfg.sources.Add($v) } }   # и строк ip_source тоже
             else { $cfg.settings[$k] = $v }
             continue
         }
@@ -120,30 +131,61 @@ function Test-Internet {
     return $false
 }
 
-# Свежий список IP из GitHub (GeoHide публикует свои адреса в шапке hosts). Не чаще раза в source_hours часов.
-function Update-SourceIps($cfg) {
-    $url = $cfg.settings.ip_source
-    if (-not ($url -match '^https://')) { return }   # ip_source = нет - не скачивать
-    $hours = 12; [void][int]::TryParse([string]$cfg.settings.source_hours, [ref]$hours)
-    if ((Test-Path $SourcePath) -and ((Get-Date) - (Get-Item $SourcePath).LastWriteTime).TotalHours -lt $hours) { return }
-    $tmp = Join-Path $TmpDir 'source.txt'
-    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-    try { & $Curl -s -L --ssl-no-revoke --max-time 20 -o $tmp $url 2>$null | Out-Null } catch {}
-    $ErrorActionPreference = $old
-    if (-not (Test-Path $tmp)) { Log 'список IP с GitHub не скачался - беру прошлый'; return }
-    $ips = @()
-    foreach ($l in [IO.File]::ReadAllLines($tmp, [Text.Encoding]::UTF8)) {
-        $t = $l.Trim()
-        if ($t -eq '') { continue }
-        if (-not $t.StartsWith('#')) { break }           # шапка кончилась
-        if ($t -match '^#\s*(\d{1,3}(\.\d{1,3}){3})\s*$') { $ips += $Matches[1] }
+# Свежие IP из списков-источников. Не чаще раза в source_hours часов (но не реже раза в $MaxSourceHours).
+# Из каждого списка берём: IP из шапки вида "# 1.2.3.4" (так GeoHide публикует свои серверы) и IP, которые
+# список назначает доменам нейронок из config.txt. use_lists = no - не качать совсем.
+function Test-AiDomain($cfg, [string]$name) {
+    $n = $name.ToLower()
+    foreach ($g in $cfg.groups) {
+        if ($g.domains.Contains($n)) { return $true }
+        if ($g.pattern -and $n -match $g.pattern) { return $true }
     }
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-    if ($ips.Count -eq 0) { Log 'в списке с GitHub не нашёл IP - беру прошлый'; return }
+    return $false
+}
+function Update-SourceIps($cfg) {
+    if ([string]$cfg.settings.use_lists -match '^(no|нет|0|off)$') { return }
+    $urls = New-Object System.Collections.ArrayList
+    foreach ($u in @($DefaultSources) + @($cfg.sources)) { if (-not $urls.Contains($u)) { [void]$urls.Add($u) } }
+    $hours = 12; [void][int]::TryParse([string]$cfg.settings.source_hours, [ref]$hours)
+    if ($hours -gt $MaxSourceHours -or $hours -lt 1) { $hours = $MaxSourceHours }
+    if ((Test-Path $SourcePath) -and ((Get-Date) - (Get-Item $SourcePath).LastWriteTime).TotalHours -lt $hours) { return }
+    $ips = New-Object System.Collections.ArrayList
+    $failed = 0; $n = 0
+    foreach ($url in $urls) {
+        $n++
+        $tmp = Join-Path $TmpDir ("source$n.txt")
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { & $Curl -s -L -f --ssl-no-revoke --max-time 25 -o $tmp $url 2>$null | Out-Null } catch {}
+        $ErrorActionPreference = $old
+        if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -lt 50) { $failed++; continue }
+        $inHead = $true; $got = 0
+        foreach ($l in [IO.File]::ReadAllLines($tmp, [Text.Encoding]::UTF8)) {
+            $t = $l.Trim()
+            if ($t -eq '') { continue }
+            if ($t.StartsWith('#')) {
+                if ($inHead -and $t -match '^#\s*(\d{1,3}(\.\d{1,3}){3})\s*$') { $got++; if (-not $ips.Contains($Matches[1])) { [void]$ips.Add($Matches[1]) } }
+                continue
+            }
+            $inHead = $false
+            $parts = @($t -split '\s+')
+            if ($parts.Count -lt 2 -or $parts[0] -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { continue }
+            if ($ips.Contains($parts[0])) { $got++; continue }
+            for ($i = 1; $i -lt $parts.Count; $i++) {
+                if ($parts[$i].StartsWith('#')) { break }
+                if (Test-AiDomain $cfg $parts[$i]) { [void]$ips.Add($parts[0]); $got++; break }
+            }
+        }
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        if ($got -eq 0) { $failed++ }
+    }
     $prev = @(Read-IpFile $SourcePath)
-    [IO.File]::WriteAllLines($SourcePath, [string[]]$ips)
+    if ($ips.Count -eq 0) { Log 'списки IP не скачались - беру прошлые'; return }
+    # если часть списков не скачалась, прошлые IP не теряем
+    if ($failed -gt 0) { foreach ($ip in $prev) { if (-not $ips.Contains($ip)) { [void]$ips.Add($ip) } } }
+    [IO.File]::WriteAllLines($SourcePath, [string[]]@($ips))
     $new = @($ips | Where-Object { $prev -notcontains $_ })
-    if ($new.Count -and $prev.Count) { Log ('список IP с GitHub обновлён, новые: ' + ($new -join ', ')) }
+    if ($new.Count) { Log ('списки IP обновлены (источников: {0}, не скачалось: {1}), новые IP: {2}' -f $urls.Count, $failed, ($new -join ', ')) }
 }
 
 # ---------- последний рабочий IP по группам ----------
@@ -340,7 +382,7 @@ try {
     Remove-Item (Join-Path $Root 'ips_found.txt') -Force -ErrorAction SilentlyContinue   # от версии с ошибкой: туда попал настоящий адрес сайта
     $allIps = New-Object System.Collections.ArrayList
     $trusted = New-Object System.Collections.ArrayList
-    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath)) { if (-not $trusted.Contains($ip) -and -not (Test-RealIp $ip)) { [void]$trusted.Add($ip); [void]$allIps.Add($ip) } }
+    foreach ($ip in @($cfg.ips) + @(Read-IpFile $SourcePath) + @(Read-IpFile (Join-Path $Root 'ips_source.txt'))) { if (-not $trusted.Contains($ip) -and -not (Test-RealIp $ip)) { [void]$trusted.Add($ip); [void]$allIps.Add($ip) } }
     $foundIps = @(Read-IpFile $FoundPath | Where-Object { -not (Test-RealIp $_) })
     foreach ($ip in $foundIps) { if (-not $allIps.Contains($ip)) { [void]$allIps.Add($ip) } }
     $newFound = New-Object System.Collections.ArrayList
